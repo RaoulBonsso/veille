@@ -30,8 +30,13 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# env files — TOUT est ignoré par défaut.
+# Le gabarit Next.js n'ignore historiquement que `.env*.local`, ce qui laisse
+# passer un `.env` en clair : piège vérifié. On ignore donc `.env*` en entier…
 .env*
+# …et on ré-autorise explicitement le seul fichier sans secret : le gabarit,
+# qui ne contient que des NOMS de variables, jamais de valeurs.
+!.env.example
 
 # vercel
 .vercel
