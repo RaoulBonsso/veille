@@ -1,65 +1,121 @@
-import Image from "next/image";
+import { getDashboard } from "@/lib/dashboard";
+import { mergeFeeds, sectionFetchedAt } from "@/lib/merge";
+import { FeedList } from "@/components/FeedList";
+import { JobList } from "@/components/JobList";
+import { SectionTimestamp, SourceStatus } from "@/components/SourceStatus";
+import { RelativeTime } from "@/components/Time";
 
-export default function Home() {
+/**
+ * ISR au niveau de la route : la page est régénérée au plus toutes les 10 min,
+ * en arrière-plan (stale-while-revalidate). Le premier visiteur après expiration
+ * reçoit encore l'ancienne page — il n'attend jamais les 6 API.
+ *
+ * Chaque `fetch` porte en plus SON propre `revalidate` (600 s pour l'actu qui
+ * bouge vite, 900 s pour les flux plus lents). Next retient la valeur la plus
+ * basse pour la route : 600 s. Les deux réglages sont donc cohérents.
+ */
+export const revalidate = 600;
+
+export default async function Page() {
+  const data = await getDashboard();
+
+  const tech = mergeFeeds(data.tech, 24);
+  const world = mergeFeeds(data.world, 12);
+
+  const allResults = [...data.tech, ...data.world, ...data.jobs.results];
+  const liveSources = allResults.filter((r) => !r.failed).length;
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+    <div className="mx-auto w-full max-w-6xl px-4 pb-16 pt-8 sm:px-6 lg:px-8">
+      <header className="mb-10">
+        <p className="text-[11px] uppercase tracking-[0.18em] text-muted">Veille personnelle</p>
+        <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">Le brief du matin</h1>
+        <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted">
+          Actus tech, offres pour dev full-stack junior et actualité générale, agrégées en direct depuis des sources
+          publiques. Aucune donnée simulée : ce qui s&apos;affiche vient d&apos;être récupéré.
+        </p>
+        <p className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted">
+          <span>
+            page générée <RelativeTime iso={data.generatedAt} className="text-text/70" />
+          </span>
+          <span aria-hidden>·</span>
+          <span className="tabular-nums">
+            {liveSources}/{allResults.length} sources en ligne
+          </span>
+          <span aria-hidden>·</span>
+          <span>rafraîchissement automatique toutes les 10 min</span>
+        </p>
+      </header>
+
+      <div className="flex flex-col gap-12">
+        <Section
+          title="Ce qui bouge dans le dev"
+          count={tech.length}
+          fetchedAt={sectionFetchedAt(data.tech)}
+          status={<SourceStatus results={data.tech} />}
+        >
+          <FeedList items={tech} empty="Toutes les sources tech sont injoignables pour le moment." />
+        </Section>
+
+        <Section
+          title="Emploi & alternance"
+          count={data.jobs.ranked.length}
+          fetchedAt={sectionFetchedAt(data.jobs.results)}
+          status={<SourceStatus results={data.jobs.results} pending={data.pending} />}
+          note="Offres filtrées sur les postes techniques puis classées par pertinence pour un profil full-stack junior en France. Les sources accessibles sans clé sont surtout remote et européennes — le badge « France » signale les offres qui touchent le pays."
+        >
+          <JobList jobs={data.jobs.ranked} />
+        </Section>
+
+        <Section
+          title="Le monde"
+          count={world.length}
+          fetchedAt={sectionFetchedAt(data.world)}
+          status={<SourceStatus results={data.world} />}
+        >
+          <FeedList items={world} empty="Le flux d'actualité générale est injoignable pour le moment." />
+        </Section>
+      </div>
+
+      <footer className="mt-16 border-t border-line pt-6 text-[11px] leading-relaxed text-muted">
+        <p>
+          Agrégateur en lecture seule : chaque titre renvoie à sa source d&apos;origine. Sources : Hacker News, dev.to,
+          GitHub, Ars Technica, Le Monde, Remotive, Jobicy, Arbeitnow, We Work Remotely.
+        </p>
+        <p className="mt-1">Construit par Joyboy · Next.js · déployé sur Vercel</p>
+      </footer>
     </div>
+  );
+}
+
+function Section({
+  title,
+  count,
+  fetchedAt,
+  status,
+  note,
+  children,
+}: {
+  title: string;
+  count: number;
+  fetchedAt: string | null;
+  status: React.ReactNode;
+  note?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section>
+      <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h2 className="text-xl font-semibold tracking-tight">{title}</h2>
+        <span className="text-[11px] tabular-nums text-muted">{count} entrées</span>
+        <SectionTimestamp iso={fetchedAt} />
+      </div>
+
+      <div className="mb-4">{status}</div>
+
+      {note && <p className="mb-4 max-w-3xl text-[12px] leading-relaxed text-muted">{note}</p>}
+
+      {children}
+    </section>
   );
 }
